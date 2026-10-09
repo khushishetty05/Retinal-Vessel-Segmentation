@@ -6,9 +6,7 @@ neural networks, no training, no GPU. It's built for a Digital Image
 Processing course, so every step is a deterministic, inspectable math
 operation rather than a black box.
 
-Right now the project implements **Stage 1 (preprocessing)** and **Stage 2
-(directional feature extraction)**. Later stages (thresholding into a final
-black/white vessel mask, and cleanup) are not implemented yet.
+Right now the project implements **Stage 1 (preprocessing)**, **Stage 2 (directional feature extraction)**, and **Stage 3 (combination and classical thresholding)**. Stage 4 (cleanup and thinning) is not implemented yet.
 
 ---
 
@@ -86,6 +84,9 @@ This opens Jupyter in your browser. Then, in order:
 2. Open **`notebooks/02_stage2_feature_extraction.ipynb`** and do the same
    with the same `IMAGE_PATH`/`MASK_PATH`. This runs three different vessel
    detectors on Stage 1's output and shows all of them side by side.
+3. Open **`notebooks/03_stage3_classical.ipynb`** to see the final combination
+   and classical thresholding. This notebook orchestrates all stages from raw
+   image to the final segmented binary mask.
 
 Every run also saves its comparison figure as a PNG under `outputs/stage1/`
 or `outputs/stage2/`, so you can look back at results without re-running
@@ -110,8 +111,10 @@ raw color photo (data/drive/images/*.tif)
   src/feature_extraction.py → STAGE 2: runs 3 different "does this look like
         │                      a blood vessel?" detectors on Stage 1's output
         ▼
-  (not built yet) STAGE 3 → would turn the detector outputs into a final
-                             black-and-white vessel map
+  src/postprocessing.py     → STAGE 3: combines the detectors into one map,
+        │                      and thresholds it into a binary vessel mask
+        ▼
+  (not built yet) STAGE 4   → cleanup and noise removal
 ```
 
 The two notebooks in `notebooks/` don't contain any of the real logic — they
@@ -343,11 +346,24 @@ answer yet. Keeping them separate at this point lets you look at each
 detector's result on its own before deciding how to combine them — that
 combination step is the next piece of this project, not yet built.
 
+### `src/postprocessing.py` — Stage 3: combination and thresholding
+
+The problem this stage solves: Stage 2 produces 4 independent feature maps (Frangi, Gaussian matched, Cauchy matched, and Gabor) on unbounded scales. We need to normalize them, fuse them into one master map, and pick a threshold to create the final black-and-white vessel segmentation.
+
+```python
+def fuse_features(feature_dict: dict[str, np.ndarray], method: str = "mean") -> np.ndarray:
+    ...
+```
+**`fuse_features(feature_dict, method="mean")`** — normalizes each map to a strict `[0, 1]` probability range and fuses them. The default is a simple average (`mean`), which is highly robust to the blind-spots of individual detectors.
+
+```python
+def apply_threshold(fused_map: np.ndarray, method: str = "otsu", ...) -> np.ndarray:
+    ...
+```
+**`apply_threshold(fused_map, method="otsu")`** — converts the continuous fused map into a binary image using classical Otsu's thresholding (`cv2.THRESH_OTSU`), automatically finding the optimal cutoff value without hand-tuning.
+
 ### What's next (not built yet)
 
-Stage 3 would take the three maps from `run_stage2` and combine them into
-one map, then turn that into a final black-and-white "vessel / not vessel"
-decision per pixel (classically, via automatic thresholding — no neural
-network). Stage 4 would then clean up that black-and-white result by
-removing small leftover noise blobs and thinning the vessels down to
-single-pixel-wide lines.
+Stage 4 would clean up the black-and-white result from Stage 3 by removing small leftover noise blobs (morphological opening/filtering) and optionally thinning the vessels down to single-pixel-wide centerlines.
+
+Additionally, we plan to extend this project to replace Stage 3's classical fusion/thresholding with a **Deep Learning approach** (e.g., a lightweight U-Net), which will learn to optimally combine the Stage 2 feature maps directly from ground-truth data!
